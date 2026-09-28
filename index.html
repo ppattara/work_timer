@@ -1,163 +1,1280 @@
 <!DOCTYPE html>
 <!--
-  Hello, GitHub Pages!
-  A minimal, self-contained page for checking that static hosting works.
-  Everything (HTML, CSS, JavaScript) lives in this one file; nothing is
-  loaded from the internet, so it also works when opened straight from disk.
+  Work Timer
+  A work/rest countdown timer (like a pomodoro timer) that also reminds you,
+  at random moments, to take a short micro-break and stretch.
+
+  Everything lives in this one file: HTML, CSS and JavaScript. The ding
+  sounds are synthesized with the Web Audio API, so there are no audio files
+  and nothing is loaded from the internet.
 -->
 <html lang="en">
 <head>
-  <!-- Character encoding and mobile-friendly scaling -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hello, GitHub Pages</title>
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Work and rest countdown timers with random micro-break reminders.">
+  <title>Work Timer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23c8472f'/%3E%3Cpath d='M16 9v7l4.5 3' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
   <!-- ============ CSS: how the page looks ============ -->
   <style>
     /* Color tokens for light mode */
     :root {
-      --bg: #f6f7f9;
-      --card: #ffffff;
-      --text: #1d2330;
-      --muted: #5b6475;
-      --accent: #2f6fde;
-      --accent-text: #ffffff;
-      --border: #dde1e8;
+      --bg: #f6f4ef;
+      --surface: #ffffff;
+      --surface-2: #ebe8e1;
+      --text: #1d1f23;
+      --muted: #676c75;
+      --line: #dcd8cf;
+      --work: #c8472f;
+      --rest: #1f7f73;
+      --micro: #6a55cf;
+      --on-accent: #ffffff;
+      --raised: #ffffff;
+      --tint: 6%;
+      --accent: var(--work);
     }
 
     /* The same tokens, redefined for dark mode */
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #14171d;
-        --card: #1d2129;
-        --text: #e6e9ef;
-        --muted: #9aa3b2;
-        --accent: #6b9cff;
-        --accent-text: #0d1117;
-        --border: #2c323d;
+        --bg: #131417;
+        --surface: #1c1e22;
+        --surface-2: #272a30;
+        --text: #eceef1;
+        --muted: #9ba1aa;
+        --line: #353940;
+        --work: #ff7b61;
+        --rest: #45c2b1;
+        --micro: #a597ff;
+        --on-accent: #131417;
+        --raised: #373b43;
+        --tint: 3%;
       }
     }
+
+    /* The accent color follows the selected tab */
+    body[data-mode="rest"] { --accent: var(--rest); }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      padding: 32px 16px;
-      background: var(--bg);
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      /* a faint wash of the accent color, so Work and Rest feel different */
+      background: color-mix(in srgb, var(--accent) var(--tint), var(--bg));
       color: var(--text);
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       line-height: 1.5;
+      transition: background-color 0.4s ease;
     }
 
-    main {
-      max-width: 560px;
-      margin: 0 auto;
+    button { font: inherit; color: inherit; }
+
+    :focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 60%, transparent);
+      outline-offset: 2px;
     }
 
-    h1 { margin: 0 0 4px; font-size: 1.8rem; }
-    h2 { margin: 0 0 12px; font-size: 1.1rem; }
-    .subtitle { margin: 0 0 24px; color: var(--muted); }
-
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 16px;
+    /* Hidden on screen, but still read by screen readers */
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
     }
 
-    .clock {
-      font-size: 2.4rem;
-      font-variant-numeric: tabular-nums; /* digits keep the same width */
+    /* ---------- Top bar: tabs in the middle, menu button on the right ---------- */
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 8px;
+      padding: 16px;
+    }
+
+    .tabs {
+      grid-column: 2;
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 999px;
+      background: var(--surface-2);
+    }
+
+    .tab {
+      position: relative;
+      min-width: 96px;
+      padding: 8px 24px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
       font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab[aria-selected="true"] {
+      background: var(--raised);
+      color: var(--accent);
+      box-shadow: 0 1px 3px rgb(0 0 0 / 0.14);
     }
 
-    button {
-      background: var(--accent);
-      color: var(--accent-text);
-      border: none;
-      border-radius: 8px;
-      padding: 10px 18px;
-      font-size: 1rem;
+    /* A small dot marks a tab whose timer is running (pulsing), paused or finished */
+    .tab-dot {
+      position: absolute;
+      top: calc(50% - 3.5px);
+      right: 11px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--work);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .tab[data-kind="rest"] .tab-dot { background: var(--rest); }
+    .tab[data-status="running"] .tab-dot { opacity: 1; animation: pulse 1.6s ease-in-out infinite; }
+    .tab[data-status="paused"] .tab-dot,
+    .tab[data-status="finished"] .tab-dot { opacity: 0.5; }
+    @keyframes pulse { 50% { opacity: 0.2; } }
+
+    .icon-button {
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--muted);
       cursor: pointer;
     }
-    button:active { transform: scale(0.97); }
+    .icon-button:hover { background: var(--surface-2); color: var(--text); }
+    .menu-button { grid-column: 3; justify-self: end; }
 
-    .count { margin-left: 12px; font-weight: 600; }
-    .muted { color: var(--muted); font-size: 0.9rem; }
-    ol { margin: 0; padding-left: 20px; }
-    code {
+    /* ---------- Timer ---------- */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 0 16px 56px;
+    }
+
+    /* Banner shown during a micro-break. It always takes up its space, so the
+       clock doesn't jump when it appears. */
+    .micro-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 18px;
+      border: 1px solid color-mix(in srgb, var(--micro) 45%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--micro) 14%, var(--surface));
+      font-weight: 600;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-6px);
+      transition: opacity 0.25s, transform 0.25s, visibility 0.25s;
+    }
+    body[data-micro] .micro-banner { opacity: 1; visibility: visible; transform: none; }
+    .micro-count {
+      min-width: 3ch;
+      color: var(--micro);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .dial {
+      position: relative;
+      width: min(80vw, 340px, 56vh);
+      aspect-ratio: 1;
+      container-type: inline-size;
+    }
+    /* a soft "clock face" inside the ring */
+    .dial::before {
+      content: "";
+      position: absolute;
+      inset: 8%;
+      border-radius: 50%;
+      background: var(--surface);
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 12px 32px rgb(0 0 0 / 0.07);
+    }
+    .ring {
+      --ring: var(--accent);
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);   /* start the ring at 12 o'clock */
+    }
+    body[data-micro][data-mode="work"] .ring { --ring: var(--micro); }
+    .ring circle { fill: none; stroke-width: 4; transition: stroke 0.3s; }
+    .ring-track { stroke: color-mix(in srgb, var(--ring) 16%, var(--surface-2)); }
+    .ring-progress { stroke: var(--ring); stroke-linecap: round; }
+
+    .readout {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .clock {
+      font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 64px;
+      font-size: 21cqi;   /* scales with the dial */
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;   /* digits keep the same width */
+      transition: opacity 0.2s;
+    }
+    .state {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .dial[data-status="paused"] .clock { opacity: 0.5; }
+    .dial[data-status="finished"] .state { color: var(--accent); }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+    }
+    .btn {
+      min-width: 104px;
+      padding: 11px 22px;
+      border: 1.5px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.15s, border-color 0.15s, opacity 0.15s;
+    }
+    .btn:hover:not(:disabled) { border-color: var(--accent); }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+    .btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, var(--text)); }
+
+    /* ---------- Settings menu (slides in from the right) ---------- */
+    .drawer {
+      width: min(400px, 100vw);
+      max-width: 100vw;
+      height: 100%;
+      max-height: 100%;
+      margin: 0 0 0 auto;
+      padding: 0;
+      border: 0;
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: -12px 0 40px rgb(0 0 0 / 0.2);
+    }
+    .drawer[open] { animation: slide-in 0.22s ease-out; }
+    .drawer::backdrop { background: rgb(10 10 12 / 0.35); }
+    @keyframes slide-in { from { transform: translateX(32px); opacity: 0; } }
+
+    .drawer-body { min-height: 100%; padding: 12px 22px 28px; }
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 -8px 6px 0;
+    }
+    .drawer-header h2 { margin: 0; font-size: 1.25rem; }
+
+    .group { padding: 16px 0; border-top: 1px solid var(--line); }
+    .group h3 {
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px 12px;
+      min-height: 46px;
+    }
+    .unit {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;   /* stays on the right, even when the row wraps */
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    input[type="number"] {
+      width: 4.2em;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
       background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 0 4px;
+      color: var(--text);
+      font: inherit;
+      font-size: 1rem;   /* 16px or more stops iPhones from zooming in */
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+    fieldset:disabled { opacity: 0.45; }
+    .hint { margin: 6px 0 0; color: var(--muted); font-size: 0.85rem; }
+
+    /* On/off switch: a real checkbox, invisible, laid over a drawn track */
+    .switch { position: relative; display: inline-flex; flex: none; }
+    .switch input {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .switch-track {
+      width: 46px;
+      height: 28px;
+      border-radius: 999px;
+      background: var(--line);
+      transition: background-color 0.2s;
+    }
+    .switch-track::before {
+      content: "";
+      display: block;
+      width: 22px;
+      height: 22px;
+      margin: 3px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+      transition: transform 0.2s;
+    }
+    .switch input:checked + .switch-track { background: var(--accent); }
+    .switch input:checked + .switch-track::before { transform: translateX(18px); }
+    .switch input:focus-visible + .switch-track {
+      outline: 3px solid color-mix(in srgb, var(--accent) 60%, transparent);
+      outline-offset: 2px;
+    }
+
+    /* Sound choices: real radio buttons, invisible, laid over "pill" labels */
+    .field-label { display: block; margin: 10px 0 8px; }
+    .sound-options { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill { position: relative; }
+    .pill input {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .pill span {
+      display: block;
+      padding: 6px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--bg);
+      font-size: 0.9rem;
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+    .pill:hover span { border-color: var(--muted); }
+    .pill input:checked + span {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    }
+    .pill input:focus-visible + span {
+      outline: 3px solid color-mix(in srgb, var(--accent) 60%, transparent);
+      outline-offset: 2px;
+    }
+
+    .volume { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+    .volume input { flex: 1; min-width: 0; accent-color: var(--accent); }
+    .volume output {
+      min-width: 3.5em;
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .drawer-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px 12px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+    .drawer-footer .hint { margin: 0; }
+    .link-button {
+      padding: 6px 0;
+      border: 0;
+      background: none;
+      color: var(--accent);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .link-button:hover { text-decoration: underline; }
+
+    /* ---------- Small phones ---------- */
+    @media (max-width: 380px) {
+      .tab { min-width: 84px; padding: 8px 18px; }
+      .btn { min-width: 0; padding: 10px 18px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; }
     }
   </style>
 </head>
 
-<body>
+<body data-mode="work">
   <!-- ============ HTML: what is on the page ============ -->
-  <main>
-    <h1>Hello, GitHub Pages 👋</h1>
-    <p class="subtitle">If you can see this at your github.io URL, hosting works.</p>
+  <header class="topbar">
+    <h1 class="visually-hidden">Work Timer</h1>
 
-    <!-- 1. A live clock: shows JavaScript runs and updates the page -->
-    <section class="card">
-      <h2>Live clock</h2>
-      <div class="clock" id="clock">--:--:--</div>
-      <p class="muted">Updated every second by JavaScript.</p>
-    </section>
+    <!-- The two timers, as tabs -->
+    <div class="tabs" id="tablist" role="tablist" aria-label="Timers">
+      <button type="button" class="tab" id="tab-work" role="tab" data-kind="work"
+              aria-selected="true" aria-controls="timer-panel">
+        Work<span class="tab-dot" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="tab" id="tab-rest" role="tab" data-kind="rest"
+              aria-selected="false" aria-controls="timer-panel" tabindex="-1">
+        Rest<span class="tab-dot" aria-hidden="true"></span>
+      </button>
+    </div>
 
-    <!-- 2. A click counter: shows the page reacts to your input -->
-    <section class="card">
-      <h2>Click counter</h2>
-      <button id="counter-btn" type="button">Click me</button>
-      <span class="count" id="count">0 clicks</span>
-    </section>
+    <!-- Opens the settings menu -->
+    <button type="button" class="icon-button menu-button" id="menu-button"
+            aria-label="Settings" aria-haspopup="dialog" aria-controls="menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"/>
+      </svg>
+    </button>
+  </header>
 
-    <!-- 3. Device info: open the page on phone and laptop and compare -->
-    <section class="card">
-      <h2>This device</h2>
-      <p id="device" class="muted">Detecting…</p>
-    </section>
+  <main id="timer-panel" role="tabpanel" aria-labelledby="tab-work">
+    <!-- Shown during a micro-break -->
+    <div class="micro-banner" aria-hidden="true">
+      <span>Micro-break · stand up and stretch</span>
+      <span class="micro-count" id="micro-count"></span>
+    </div>
 
-    <!-- 4. Reminder of the hosting steps -->
-    <section class="card">
-      <h2>How this page is hosted</h2>
-      <ol>
-        <li>Push <code>index.html</code> to the root of a public GitHub repo.</li>
-        <li>Open <strong>Settings → Pages</strong>.</li>
-        <li>Choose <strong>Deploy from a branch</strong>, branch <code>main</code>, folder <code>/ (root)</code>.</li>
-        <li>Visit <code>https://&lt;username&gt;.github.io/&lt;repo&gt;/</code>.</li>
-      </ol>
-    </section>
+    <!-- The clock, inside a ring that empties as time runs out -->
+    <div class="dial" id="dial" data-status="idle">
+      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="ring-track" cx="60" cy="60" r="54"/>
+        <circle class="ring-progress" id="ring" cx="60" cy="60" r="54" stroke-dasharray="339.29"/>
+      </svg>
+      <div class="readout">
+        <div class="clock" id="clock" role="timer">25:00</div>
+        <div class="state" id="state">Ready</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button type="button" class="btn primary" id="start-button">Start</button>
+      <button type="button" class="btn" id="pause-button" disabled>Pause</button>
+      <button type="button" class="btn" id="reset-button" disabled>Reset</button>
+    </div>
+
+    <!-- Invisible: screen readers announce what is written here -->
+    <p class="visually-hidden" id="announcer" role="status"></p>
   </main>
 
-  <!-- ============ JavaScript: how the page behaves ============ -->
-  <script>
-    // --- Live clock ---
-    const clockEl = document.getElementById("clock");
-    function updateClock() {
-      clockEl.textContent = new Date().toLocaleTimeString();
-    }
-    updateClock();                   // show the time immediately...
-    setInterval(updateClock, 1000);  // ...then refresh it every second
+  <!-- ============ Settings menu ============ -->
+  <dialog class="drawer" id="menu" aria-labelledby="menu-title">
+    <form class="drawer-body" id="settings-form">
+      <div class="drawer-header">
+        <h2 id="menu-title">Settings</h2>
+        <button type="button" class="icon-button" id="close-button" aria-label="Close settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18"/>
+          </svg>
+        </button>
+      </div>
 
-    // --- Click counter ---
-    const btn = document.getElementById("counter-btn");
-    const countEl = document.getElementById("count");
-    let clicks = 0;
-    btn.addEventListener("click", () => {
-      clicks += 1;
-      countEl.textContent = clicks + (clicks === 1 ? " click" : " clicks");
+      <section class="group" aria-labelledby="timers-heading">
+        <h3 id="timers-heading">Timers</h3>
+        <div class="row">
+          <label for="work-minutes">Work length</label>
+          <span class="unit">
+            <input type="number" id="work-minutes" name="workMinutes"
+                   min="1" max="180" step="1" inputmode="numeric"> min
+          </span>
+        </div>
+        <div class="row">
+          <label for="rest-minutes">Rest length</label>
+          <span class="unit">
+            <input type="number" id="rest-minutes" name="restMinutes"
+                   min="1" max="60" step="1" inputmode="numeric"> min
+          </span>
+        </div>
+        <p class="hint">A timer that is already running keeps its length until you reset it.</p>
+      </section>
+
+      <section class="group" aria-labelledby="micro-heading">
+        <h3 id="micro-heading">Micro-breaks</h3>
+        <label class="row" for="micro-enabled">
+          <span>Remind me to take micro-breaks</span>
+          <span class="switch">
+            <input type="checkbox" id="micro-enabled" name="microEnabled" role="switch">
+            <span class="switch-track" aria-hidden="true"></span>
+          </span>
+        </label>
+        <fieldset id="micro-fields">
+          <legend class="visually-hidden">Micro-break timing</legend>
+          <div class="row">
+            <span>Time between breaks</span>
+            <span class="unit">
+              <input type="number" name="microMinMinutes" min="0.5" max="60" step="0.5"
+                     inputmode="decimal" aria-label="Shortest time between micro-breaks, in minutes">
+              to
+              <input type="number" name="microMaxMinutes" min="0.5" max="60" step="0.5"
+                     inputmode="decimal" aria-label="Longest time between micro-breaks, in minutes">
+              min
+            </span>
+          </div>
+          <div class="row">
+            <label for="micro-seconds">Break length</label>
+            <span class="unit">
+              <input type="number" id="micro-seconds" name="microSeconds"
+                     min="3" max="120" step="1" inputmode="numeric"> sec
+            </span>
+          </div>
+          <p class="hint">Each reminder comes at a random moment within this range.
+            There are none in the last minute of a work session.</p>
+        </fieldset>
+      </section>
+
+      <section class="group" aria-labelledby="sounds-heading">
+        <h3 id="sounds-heading">Sounds</h3>
+        <span class="field-label" id="timer-sound-label">Start &amp; finish</span>
+        <div class="sound-options" role="radiogroup" aria-labelledby="timer-sound-label"
+             data-setting="timerSound"></div>
+        <span class="field-label" id="micro-sound-label">Micro-break</span>
+        <div class="sound-options" role="radiogroup" aria-labelledby="micro-sound-label"
+             data-setting="microSound"></div>
+        <p class="hint">Pick a sound to hear a sample.</p>
+        <div class="volume">
+          <label for="volume">Volume</label>
+          <input type="range" id="volume" name="volume" min="0" max="100" step="1">
+          <output id="volume-output" for="volume"></output>
+        </div>
+      </section>
+
+      <div class="drawer-footer">
+        <button type="button" class="link-button" id="defaults-button">Restore defaults</button>
+        <p class="hint">Settings are saved in this browser.</p>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ JavaScript: how the page behaves ============ -->
+  <script type="module">
+    // ============================================================
+    //  Configuration
+    // ============================================================
+
+    const APP_TITLE = "Work Timer";
+    const LABELS = { work: "Work", rest: "Rest" };
+    const MICRO_CUTOFF_MS = 60 * 1000;  // no micro-breaks in the last minute of a work session
+    const FINISH_DINGS = 3;             // the finish sound rings this many times
+    const TICK_MS = 100;                // how often a running clock is refreshed
+
+    // What happens when a timer runs out. For now it is "wait": ding, then
+    // leave the next step to the user. Also supported: "switch" (show the
+    // other timer's tab) and "switch-and-start" (show it and start it).
+    const AFTER_FINISH = "wait";
+
+    const STORAGE_KEY = "work-timer-settings";
+
+    const DEFAULT_SETTINGS = Object.freeze({
+      workMinutes: 25,
+      restMinutes: 5,
+      microEnabled: true,
+      microMinMinutes: 2,    // shortest gap between micro-breaks
+      microMaxMinutes: 5,    // longest gap between micro-breaks
+      microSeconds: 10,      // length of a micro-break
+      timerSound: "bell",    // rings when a timer starts and when it finishes
+      microSound: "chime",   // rings at the start and at the end of a micro-break
+      volume: 80,            // percent
     });
 
-    // --- Device info ---
-    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-    document.getElementById("device").textContent =
-      (isMobile ? "Mobile" : "Desktop") +
-      " · screen " + window.screen.width + "×" + window.screen.height +
-      " · served over " + location.protocol.replace(":", "").toUpperCase();
+    // ============================================================
+    //  Sounds, synthesized with the Web Audio API
+    // ============================================================
+
+    // Each sound is one or more notes, and each note is a mix of sine waves
+    // ("partials") that fade out at different speeds, like a struck bell.
+    //   notes:    [start offset in seconds, frequency in Hz]
+    //   partials: [frequency ratio, loudness, fade-out time in seconds]
+    //   level:    evens out how loud the sounds seem next to each other
+    const SOUNDS = {
+      bell: {
+        label: "Bell",
+        attack: 0.002,
+        notes: [[0, 880]],
+        partials: [[1, 1, 2.6], [1.002, 0.3, 2.2], [3, 0.35, 1.1], [5.4, 0.06, 0.25]],
+        level: 1,
+      },
+      chime: {
+        label: "Chime",
+        attack: 0.003,
+        notes: [[0, 784], [0.17, 1046.5]],
+        partials: [[1, 1, 1.8], [2.76, 0.22, 0.7], [5.4, 0.06, 0.25]],
+        level: 0.67,
+      },
+      bowl: {
+        label: "Singing bowl",
+        attack: 0.015,
+        notes: [[0, 440]],
+        partials: [[1, 0.8, 6], [1.0035, 0.6, 6], [2.83, 0.35, 3.5], [2.836, 0.25, 3.5], [5.42, 0.12, 1.6]],
+        level: 1.15,
+      },
+      marimba: {
+        label: "Marimba",
+        attack: 0.003,
+        notes: [[0, 523.25], [0.12, 659.25], [0.24, 784]],
+        partials: [[1, 1, 1.1], [4, 0.3, 0.15], [9.9, 0.06, 0.05]],
+        level: 0.86,
+      },
+      crystal: {
+        label: "Crystal",
+        attack: 0.002,
+        notes: [[0, 1318.5]],
+        partials: [[1, 1, 2.4], [1.0027, 0.5, 2.2], [2.71, 0.08, 0.5]],
+        level: 0.82,
+      },
+      kalimba: {
+        label: "Kalimba",
+        attack: 0.002,
+        notes: [[0, 1046.5], [0.14, 784]],
+        partials: [[1, 1, 1.3], [6.27, 0.14, 0.12]],
+        level: 0.69,
+      },
+    };
+
+    const PEAK = 0.67;        // loudest a single note gets at 100% volume
+    const REPEAT_GAP = 1.2;   // seconds between repeated dings
+
+    function createSoundPlayer() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      let ctx = null;
+      let master = null;   // one volume knob for every sound
+      let volume = 1;
+
+      // Browsers only allow audio after the user has clicked something, so
+      // the audio context is created by the first click that plays a sound.
+      function getContext() {
+        if (!AudioContextClass) return null;
+        if (!ctx) {
+          ctx = new AudioContextClass();
+          master = ctx.createGain();
+          master.gain.value = volume;
+          master.connect(ctx.destination);
+        }
+        if (ctx.state !== "running") ctx.resume().catch(() => {});
+        return ctx;
+      }
+
+      function strikeNote(sound, frequency, when) {
+        const total = sound.partials.reduce((sum, [, loudness]) => sum + loudness, 0);
+        const scale = (PEAK * sound.level) / total;
+        for (const [ratio, loudness, fade] of sound.partials) {
+          const osc = ctx.createOscillator();
+          const envelope = ctx.createGain();
+          osc.frequency.value = frequency * ratio;
+          envelope.gain.setValueAtTime(0, when);
+          envelope.gain.linearRampToValueAtTime(loudness * scale, when + sound.attack);
+          envelope.gain.exponentialRampToValueAtTime(0.0001, when + sound.attack + fade);
+          osc.connect(envelope);
+          envelope.connect(master);
+          osc.start(when);
+          osc.stop(when + sound.attack + fade);
+        }
+      }
+
+      return {
+        setVolume(percent) {
+          volume = (percent / 100) ** 2;   // squared, so the slider feels even to the ear
+          if (master) master.gain.setTargetAtTime(volume, ctx.currentTime, 0.02);
+        },
+        play(soundId, times = 1) {
+          if (!getContext()) return;
+          const sound = SOUNDS[soundId] || SOUNDS.bell;
+          const start = ctx.currentTime + 0.03;
+          for (let i = 0; i < times; i++) {
+            for (const [offset, frequency] of sound.notes) {
+              strikeNote(sound, frequency, start + i * REPEAT_GAP + offset);
+            }
+          }
+        },
+      };
+    }
+
+    // ============================================================
+    //  Ticker: calls a function every TICK_MS while a timer runs
+    // ============================================================
+
+    // Browsers slow down timers in background tabs (Chrome may run them only
+    // once a minute), which would make the dings late. Timers inside a Web
+    // Worker are not slowed down, so the ticks come from a tiny worker, with
+    // a plain setInterval as the fallback.
+    function createTicker(onTick, intervalMs) {
+      let worker = null;
+      let intervalId = null;
+      let running = false;
+
+      function useFallback() {
+        worker = null;
+        if (running && intervalId === null) intervalId = setInterval(onTick, intervalMs);
+      }
+
+      try {
+        const code = "let id; onmessage = (e) => { clearInterval(id); if (e.data) id = setInterval(() => postMessage(0), e.data); };";
+        worker = new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
+        worker.onmessage = () => onTick();
+        worker.onerror = useFallback;
+      } catch {
+        worker = null;
+      }
+
+      return {
+        start() {
+          running = true;
+          if (worker) worker.postMessage(intervalMs);
+          else useFallback();
+        },
+        stop() {
+          running = false;
+          if (worker) worker.postMessage(0);
+          clearInterval(intervalId);
+          intervalId = null;
+        },
+      };
+    }
+
+    // ============================================================
+    //  Countdown: one timer. It remembers the moment it will end
+    //  instead of counting ticks, so late ticks never make it drift.
+    // ============================================================
+
+    class Countdown {
+      constructor(kind, durationMs) {
+        this.kind = kind;   // "work" or "rest"
+        this.reset(durationMs);
+      }
+
+      reset(durationMs) {
+        this.status = "idle";   // idle -> running <-> paused -> finished
+        this.durationMs = durationMs;
+        this.remainingMs = durationMs;
+        this.endsAt = 0;
+      }
+
+      remaining(now = Date.now()) {
+        return this.status === "running" ? Math.max(0, this.endsAt - now) : this.remainingMs;
+      }
+
+      elapsed(now = Date.now()) {
+        return this.durationMs - this.remaining(now);
+      }
+
+      start(now = Date.now()) {
+        this.endsAt = now + this.remainingMs;
+        this.status = "running";
+      }
+
+      pause(now = Date.now()) {
+        this.remainingMs = this.remaining(now);
+        this.status = "paused";
+      }
+
+      finish() {
+        this.remainingMs = 0;
+        this.status = "finished";
+      }
+    }
+
+    // ============================================================
+    //  Page elements
+    // ============================================================
+
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      tablist: $("tablist"),
+      tabs: [$("tab-work"), $("tab-rest")],
+      panel: $("timer-panel"),
+      dial: $("dial"),
+      ring: $("ring"),
+      clock: $("clock"),
+      state: $("state"),
+      startButton: $("start-button"),
+      pauseButton: $("pause-button"),
+      resetButton: $("reset-button"),
+      microCount: $("micro-count"),
+      announcer: $("announcer"),
+      menuButton: $("menu-button"),
+      menu: $("menu"),
+      closeButton: $("close-button"),
+      form: $("settings-form"),
+      microFields: $("micro-fields"),
+      volumeOutput: $("volume-output"),
+      defaultsButton: $("defaults-button"),
+    };
+
+    // ============================================================
+    //  Settings storage (localStorage)
+    // ============================================================
+
+    // Read the saved settings, keeping only values that are still valid.
+    function loadSettings() {
+      let saved = null;
+      try {
+        saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      } catch {
+        // storage blocked or unreadable: use the defaults
+      }
+      const loaded = { ...DEFAULT_SETTINGS };
+      if (!saved || typeof saved !== "object") return loaded;
+
+      for (const [key, fallback] of Object.entries(DEFAULT_SETTINGS)) {
+        const value = saved[key];
+        if (typeof fallback === "number" && Number.isFinite(value)) {
+          loaded[key] = fitToField(els.form.elements.namedItem(key), value);
+        } else if (typeof fallback === "boolean" && typeof value === "boolean") {
+          loaded[key] = value;
+        } else if (typeof fallback === "string" && Object.hasOwn(SOUNDS, value)) {
+          loaded[key] = value;
+        }
+      }
+      loaded.microMaxMinutes = Math.max(loaded.microMaxMinutes, loaded.microMinMinutes);
+      return loaded;
+    }
+
+    function saveSettings() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      } catch {
+        // storage full or blocked (e.g. private browsing): settings last for this visit only
+      }
+    }
+
+    // Clamp a number to an input's min/max and round it to the input's step.
+    function fitToField(field, value) {
+      const step = Number(field.step) || 1;
+      const rounded = Number((Math.round(value / step) * step).toFixed(2));
+      return Math.min(Number(field.max), Math.max(Number(field.min), rounded));
+    }
+
+    // ============================================================
+    //  App state
+    // ============================================================
+
+    let settings = loadSettings();
+    const sound = createSoundPlayer();
+    sound.setVolume(settings.volume);
+
+    const timers = {
+      work: new Countdown("work", durationOf("work")),
+      rest: new Countdown("rest", durationOf("rest")),
+    };
+    let selectedKind = "work";   // which tab is showing
+
+    // The micro-break schedule, in elapsed work time (so pausing the work
+    // timer pauses the schedule too). null means "none".
+    const micro = {
+      nextAt: null,   // when the next micro-break starts
+      endsAt: null,   // when the current micro-break ends (null: not in one)
+    };
+
+    const ticker = createTicker(update, TICK_MS);
+
+    function durationOf(kind) {
+      return (kind === "work" ? settings.workMinutes : settings.restMinutes) * 60 * 1000;
+    }
+
+    function otherKind(kind) {
+      return kind === "work" ? "rest" : "work";
+    }
+
+    // ============================================================
+    //  Timer actions
+    // ============================================================
+
+    function startTimer(kind) {
+      const timer = timers[kind];
+      if (timer.status === "running") return;
+
+      // Only one timer runs at a time: starting one resets the other.
+      const other = timers[otherKind(kind)];
+      if (other.status !== "idle") resetTimer(other.kind);
+
+      const isNewSession = timer.status !== "paused";
+      if (timer.status === "finished") timer.reset(durationOf(kind));
+      timer.start();
+      if (isNewSession) {
+        sound.play(settings.timerSound);
+        if (kind === "work") scheduleMicroBreak(0);
+      }
+      ticker.start();
+      update();
+    }
+
+    function pauseTimer(kind) {
+      const timer = timers[kind];
+      if (timer.status !== "running") return;
+      timer.pause();
+      ticker.stop();
+      update();
+    }
+
+    function resetTimer(kind) {
+      const timer = timers[kind];
+      if (timer.status === "running") ticker.stop();
+      timer.reset(durationOf(kind));
+      if (kind === "work") clearMicroBreaks();
+      update();
+    }
+
+    function finishTimer(timer) {
+      timer.finish();
+      if (timer.kind === "work") clearMicroBreaks();
+      ticker.stop();
+      sound.play(settings.timerSound, FINISH_DINGS);
+      announce(`${LABELS[timer.kind]} time is up.`);
+      afterFinish(timer.kind);
+    }
+
+    // The one place that decides what follows a finished timer (see AFTER_FINISH).
+    function afterFinish(kind) {
+      if (AFTER_FINISH === "switch" || AFTER_FINISH === "switch-and-start") selectTab(otherKind(kind));
+      if (AFTER_FINISH === "switch-and-start") startTimer(otherKind(kind));
+    }
+
+    // ============================================================
+    //  Micro-breaks (work timer only)
+    // ============================================================
+
+    // Pick a random moment for the next micro-break, fromElapsedMs + 2-5 min
+    // (with the default settings).
+    function scheduleMicroBreak(fromElapsedMs) {
+      micro.nextAt = null;
+      if (!settings.microEnabled) return;
+      const shortest = settings.microMinMinutes * 60 * 1000;
+      const longest = settings.microMaxMinutes * 60 * 1000;
+      const startsAt = fromElapsedMs + shortest + Math.random() * (longest - shortest);
+      const endsAt = startsAt + settings.microSeconds * 1000;
+      // Skip a micro-break that would reach into the last minute: the work
+      // session is about to end anyway (and so would every later one).
+      if (endsAt > timers.work.durationMs - MICRO_CUTOFF_MS) return;
+      micro.nextAt = startsAt;
+    }
+
+    function clearMicroBreaks() {
+      micro.nextAt = null;
+      micro.endsAt = null;
+    }
+
+    function isMicroBreakActive() {
+      return micro.endsAt !== null && timers.work.status === "running";
+    }
+
+    function updateMicroBreak(elapsed) {
+      if (micro.endsAt !== null) {
+        if (elapsed >= micro.endsAt) {
+          // Second ding: the micro-break is over.
+          micro.endsAt = null;
+          sound.play(settings.microSound);
+          announce("Micro-break over.");
+          scheduleMicroBreak(elapsed);
+        }
+      } else if (micro.nextAt !== null && elapsed >= micro.nextAt) {
+        const endsAt = micro.nextAt + settings.microSeconds * 1000;
+        micro.nextAt = null;
+        if (elapsed < endsAt) {
+          // First ding: time to stand up and stretch.
+          micro.endsAt = endsAt;
+          sound.play(settings.microSound);
+          announce("Micro-break: stand up and stretch.");
+        } else {
+          // The whole break was missed (e.g. the computer was asleep).
+          scheduleMicroBreak(elapsed);
+        }
+      }
+    }
+
+    // ============================================================
+    //  Update loop and drawing
+    // ============================================================
+
+    const RING_LENGTH = 2 * Math.PI * 54;   // circumference of the progress ring
+
+    // Runs on every tick and after every action: fire whatever is due, then redraw.
+    function update() {
+      const now = Date.now();
+      if (timers.work.status === "running") updateMicroBreak(timers.work.elapsed(now));
+      for (const timer of Object.values(timers)) {
+        if (timer.status === "running" && timer.remaining(now) <= 0) finishTimer(timer);
+      }
+      render(now);
+    }
+
+    function render(now = Date.now()) {
+      const timer = timers[selectedKind];
+      const remaining = timer.remaining(now);
+      const microActive = isMicroBreakActive();
+
+      document.body.dataset.mode = selectedKind;
+      document.body.toggleAttribute("data-micro", microActive);
+      els.dial.dataset.status = timer.status;
+      for (const tab of els.tabs) tab.dataset.status = timers[tab.dataset.kind].status;
+
+      setText(els.clock, formatClock(remaining));
+      setText(els.state, stateLabel(timer));
+      const fraction = timer.durationMs > 0 ? remaining / timer.durationMs : 0;
+      els.ring.style.strokeDashoffset = `${-RING_LENGTH * (1 - fraction)}px`;
+      els.ring.style.opacity = fraction > 0 ? "1" : "0";
+
+      els.startButton.disabled = timer.status === "running";
+      els.pauseButton.disabled = timer.status !== "running";
+      els.resetButton.disabled = timer.status === "idle";
+
+      if (microActive) {
+        const secondsLeft = Math.ceil((micro.endsAt - timers.work.elapsed(now)) / 1000);
+        setText(els.microCount, `${secondsLeft}s`);
+      }
+
+      const title = pageTitle(now);
+      if (document.title !== title) document.title = title;
+    }
+
+    // The browser tab's title, so the timer can be followed from another tab.
+    function pageTitle(now) {
+      const timer = Object.values(timers).find((t) => t.status !== "idle");
+      if (!timer) return APP_TITLE;
+      const label = LABELS[timer.kind];
+      const clock = formatClock(timer.remaining(now));
+      if (timer.status === "running") {
+        return timer.kind === "work" && isMicroBreakActive() ? "Micro Break" : `${clock} · ${label}`;
+      }
+      if (timer.status === "paused") return `Paused · ${clock} · ${label}`;
+      return `Time's up · ${label}`;
+    }
+
+    function stateLabel(timer) {
+      switch (timer.status) {
+        case "running": return timer.kind === "work" ? "Working" : "Resting";
+        case "paused": return "Paused";
+        case "finished": return "Time's up";
+        default: return "Ready";
+      }
+    }
+
+    // 1500000 ms -> "25:00". Rounds up, so the clock reads 00:00 only at the very end.
+    function formatClock(ms) {
+      const totalSeconds = Math.ceil(ms / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function setText(el, text) {
+      if (el.textContent !== text) el.textContent = text;
+    }
+
+    function announce(message) {
+      els.announcer.textContent = message;
+    }
+
+    // ============================================================
+    //  Tabs and buttons
+    // ============================================================
+
+    function selectTab(kind, moveFocus = false) {
+      selectedKind = kind;
+      for (const tab of els.tabs) {
+        const isSelected = tab.dataset.kind === kind;
+        tab.setAttribute("aria-selected", String(isSelected));
+        tab.tabIndex = isSelected ? 0 : -1;
+        if (isSelected && moveFocus) tab.focus();
+      }
+      els.panel.setAttribute("aria-labelledby", `tab-${kind}`);
+      render();
+    }
+
+    for (const tab of els.tabs) {
+      tab.addEventListener("click", () => selectTab(tab.dataset.kind));
+    }
+
+    // Arrow keys move between the tabs (the usual keyboard pattern for tabs).
+    els.tablist.addEventListener("keydown", (event) => {
+      const keys = {
+        ArrowLeft: otherKind(selectedKind),
+        ArrowRight: otherKind(selectedKind),
+        Home: "work",
+        End: "rest",
+      };
+      const kind = keys[event.key];
+      if (!kind) return;
+      event.preventDefault();
+      selectTab(kind, true);
+    });
+
+    // If an action disables the focused button (e.g. Start once running),
+    // keyboard focus moves to the button that is useful next.
+    function onButton(button, action) {
+      button.addEventListener("click", () => {
+        const hadFocus = document.activeElement === button;
+        action(selectedKind);
+        if (hadFocus && button.disabled) {
+          (els.pauseButton.disabled ? els.startButton : els.pauseButton).focus();
+        }
+      });
+    }
+    onButton(els.startButton, startTimer);
+    onButton(els.pauseButton, pauseTimer);
+    onButton(els.resetButton, resetTimer);
+
+    // ============================================================
+    //  Settings menu
+    // ============================================================
+
+    els.menuButton.addEventListener("click", () => els.menu.showModal());
+    els.closeButton.addEventListener("click", () => els.menu.close());
+    // A click on the dimmed backdrop (outside the panel) closes the menu.
+    els.menu.addEventListener("click", (event) => {
+      if (event.target === els.menu) els.menu.close();
+    });
+
+    // One row of sound choices for each sound setting.
+    for (const group of document.querySelectorAll(".sound-options")) {
+      for (const [id, { label }] of Object.entries(SOUNDS)) {
+        const option = document.createElement("label");
+        option.className = "pill";
+        option.innerHTML = `<input type="radio" name="${group.dataset.setting}" value="${id}"><span>${label}</span>`;
+        group.append(option);
+      }
+    }
+
+    // Show the current settings in the menu.
+    function fillForm() {
+      for (const [key, value] of Object.entries(settings)) {
+        const field = els.form.elements.namedItem(key);
+        if (field.type === "checkbox") field.checked = value;
+        else field.value = String(value);   // for a group of radio buttons, this checks one
+      }
+      els.microFields.disabled = !settings.microEnabled;
+      els.volumeOutput.textContent = `${settings.volume}%`;
+    }
+
+    els.form.addEventListener("submit", (event) => event.preventDefault());
+
+    // Number boxes, the micro-break switch and the volume slider.
+    els.form.addEventListener("change", (event) => {
+      const field = event.target;
+      if (field.type === "radio") return;   // sound choices are handled on click, below
+
+      if (field.type === "checkbox") {
+        settings[field.name] = field.checked;
+      } else if (field.type === "range") {
+        settings[field.name] = Number(field.value);
+        sound.play(settings.timerSound);    // a sample at the new volume
+      } else {
+        const value = Number.parseFloat(field.value);
+        if (Number.isFinite(value)) settings[field.name] = fitToField(field, value);
+        // keep the shortest gap <= the longest gap
+        if (field.name === "microMinMinutes") {
+          settings.microMaxMinutes = Math.max(settings.microMaxMinutes, settings.microMinMinutes);
+        } else if (field.name === "microMaxMinutes") {
+          settings.microMinMinutes = Math.min(settings.microMinMinutes, settings.microMaxMinutes);
+        }
+      }
+      applySettings(field.name);
+    });
+
+    // Change the volume live while the slider is being dragged.
+    els.form.addEventListener("input", (event) => {
+      if (event.target.name !== "volume") return;
+      settings.volume = Number(event.target.value);
+      sound.setVolume(settings.volume);
+      els.volumeOutput.textContent = `${settings.volume}%`;
+    });
+
+    // Picking a sound (or the picked one again) plays a sample of it.
+    els.form.addEventListener("click", (event) => {
+      const field = event.target;
+      if (field.type !== "radio") return;
+      settings[field.name] = field.value;
+      sound.play(field.value);
+      applySettings(field.name);
+    });
+
+    els.defaultsButton.addEventListener("click", () => {
+      settings = { ...DEFAULT_SETTINGS };
+      applySettings();
+    });
+
+    const MICRO_SETTINGS = ["microEnabled", "microMinMinutes", "microMaxMinutes", "microSeconds"];
+
+    // Save the settings and put them into effect. changedKey is the setting
+    // that changed, or undefined when all of them may have.
+    function applySettings(changedKey) {
+      saveSettings();
+      fillForm();
+      sound.setVolume(settings.volume);
+
+      // A timer that hasn't started shows its new length at once; a running
+      // or paused timer keeps its length until it is reset.
+      for (const timer of Object.values(timers)) {
+        if (timer.status === "idle") timer.reset(durationOf(timer.kind));
+      }
+
+      // Micro-break settings changed in the middle of a work session:
+      // plan the next micro-break with the new values.
+      const work = timers.work;
+      const inSession = work.status === "running" || work.status === "paused";
+      if (inSession && (!changedKey || MICRO_SETTINGS.includes(changedKey))) {
+        if (!settings.microEnabled) clearMicroBreaks();
+        else if (micro.endsAt === null) scheduleMicroBreak(work.elapsed());
+      }
+      update();
+    }
+
+    // ============================================================
+    //  Start-up
+    // ============================================================
+
+    fillForm();
+    render();
   </script>
 </body>
 </html>
