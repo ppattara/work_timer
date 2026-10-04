@@ -763,14 +763,17 @@
 
     // The "Recorded" choice plays a recording instead of a ding, a different
     // one for each moment. The recordings are m4a files, written out as base64
-    // text in the blocks after this script. A browser that can't decode them
-    // (m4a holds AAC audio, which a few browsers lack) rings the fallback ding.
+    // text in the blocks after this script.
+    //   level:    evens out how loud the recordings seem next to each other
+    //             (the "end" ones were recorded 4-5 dB quieter)
+    //   fallback: the ding that rings instead if the browser can't decode the
+    //             recording (m4a holds AAC audio, which a few browsers lack)
     const RECORDED = "recorded";
     const RECORDINGS = {
-      work_begin: { fallback: "bell" },
-      work_end: { fallback: "bell" },
-      micro_break_begin: { fallback: "chime" },
-      micro_break_end: { fallback: "chime" },
+      work_begin: { level: 1, fallback: "bell" },
+      work_end: { level: 1.62, fallback: "bell" },
+      micro_break_begin: { level: 1, fallback: "chime" },
+      micro_break_end: { level: 1.78, fallback: "chime" },
     };
 
     // Which recording plays when. A rest session ends with the recording that
@@ -853,6 +856,7 @@
             }
             const source = ctx.createBufferSource();
             const fader = ctx.createGain();
+            fader.gain.value = RECORDINGS[id].level;
             source.buffer = buffer;
             source.connect(fader);
             fader.connect(master);
@@ -1455,7 +1459,8 @@
   <!-- The recordings behind the "Recorded" sound choice: m4a files, written out
        as base64 text so that the app stays a single file. To swap one for a new
        recording, replace the text in its block with the output of
-         base64 -b 76 -i new_sound.m4a        (on Linux: base64 -w 76 new_sound.m4a) -->
+         base64 -b 76 -i new_sound.m4a        (on Linux: base64 -w 76 new_sound.m4a)
+       and set its level in RECORDINGS (1 plays it as recorded). -->
   <script type="text/plain" data-recording="work_begin">
 AAAAHGZ0eXBNNEEgAAAAAE00QSBpc29tbXA0MgAAAAFtZGF0AAAAAAABDf0hAANAaBwhC4///4Af
 //B3GjIsGPv5glYVMZWnJtC0IPoiCjkLFYhi8ORl6cloQkMcQnfjkJ9AnFxBKUciCLL0mzVk5qSE
