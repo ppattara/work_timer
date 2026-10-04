@@ -411,9 +411,16 @@
       outline-offset: 2px;
     }
 
-    .volume { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
-    .volume input { flex: 1; min-width: 0; accent-color: var(--accent); }
-    .volume output {
+    /* Volume and sharpness sliders, lined up in a grid */
+    .sliders {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .sliders input { min-width: 0; accent-color: var(--accent); }
+    .sliders output {
       min-width: 3.5em;
       color: var(--muted);
       text-align: right;
@@ -583,11 +590,16 @@
         <div class="sound-options" role="radiogroup" aria-labelledby="micro-sound-label"
              data-setting="microSound"></div>
         <p class="hint">Pick a sound to hear a sample.</p>
-        <div class="volume">
+        <div class="sliders">
           <label for="volume">Volume</label>
           <input type="range" id="volume" name="volume" min="0" max="100" step="1">
           <output id="volume-output" for="volume"></output>
+          <label for="sharpness">Sharpness</label>
+          <input type="range" id="sharpness" name="sharpness" min="0" max="100" step="1"
+                 aria-describedby="sharpness-hint">
+          <output id="sharpness-output" for="sharpness"></output>
         </div>
+        <p class="hint" id="sharpness-hint">Sharper dings are brighter and crisper, but no louder.</p>
       </section>
 
       <div class="drawer-footer">
@@ -626,6 +638,7 @@
       timerSound: "bell",    // rings when a timer starts and when it finishes
       microSound: "chime",   // rings at the start and at the end of a micro-break
       volume: 80,            // percent
+      sharpness: 50,         // percent: 0 plays each sound at its softest
     });
 
     // ============================================================
@@ -637,6 +650,7 @@
     //   notes:    [start offset in seconds, frequency in Hz]
     //   partials: [frequency ratio, loudness, fade-out time in seconds]
     //   level:    evens out how loud the sounds seem next to each other
+    // This is how each sound plays at sharpness 0, its softest (see shapeSound).
     const SOUNDS = {
       bell: {
         label: "Bell",
@@ -684,12 +698,66 @@
 
     const PEAK = 0.67;        // loudest a single note gets at 100% volume
     const REPEAT_GAP = 1.2;   // seconds between repeated dings
+    const FADED = 0.0001;     // the level a partial fades out to
+    const EAR_TIME = 0.2;     // the ear sums up sound over about this many seconds
+
+    // Sharpness plays the sounds as if struck with a harder mallet: going from
+    // sharpness 0 to 1, each partial gets louder by ratio ** SHARP_BOOST and
+    // rings longer by ratio ** SHARP_RING (ratio being its frequency ratio),
+    // so the higher partials grow the most, and the attack speeds up to
+    // SHARP_ATTACK. At full sharpness, a partial at 3x the note's frequency
+    // gets 5.2x louder and rings 1.7x longer.
+    const SHARP_BOOST = 1.5;
+    const SHARP_RING = 0.5;
+    const SHARP_ATTACK = 0.001;   // seconds
+
+    // A sound's attack time and partials, as [frequency ratio, amplitude,
+    // fade-out time], at a sharpness from 0 to 1. The partials are scaled to
+    // sound as loud as at sharpness 0: sharpness changes how a sound sounds,
+    // never how loud it is.
+    function shapeSound(sound, sharpness) {
+      const total = sound.partials.reduce((sum, [, loudness]) => sum + loudness, 0);
+      const scale = (PEAK * sound.level) / total;
+      const soft = sound.partials.map(([ratio, loudness, fade]) => [ratio, loudness * scale, fade]);
+      const sharp = soft.map(([ratio, amplitude, fade]) => [
+        ratio,
+        amplitude * ratio ** (SHARP_BOOST * sharpness),
+        fade * ratio ** (SHARP_RING * sharpness),
+      ]);
+      const match = loudnessOf(soft) / loudnessOf(sharp);
+      return {
+        attack: sound.attack + (SHARP_ATTACK - sound.attack) * sharpness,
+        partials: sharp.map(([ratio, amplitude, fade]) => [ratio, amplitude * match, fade]),
+      };
+    }
+
+    // How loud a note's partials sound, given as an amplitude. A simplified
+    // version of Zwicker's loudness model (ISO 532-1), which it matches to
+    // within about 1 dB for these sounds at any sharpness:
+    //  - a partial counts by its energy in the first EAR_TIME seconds, so
+    //    short partials count for less;
+    //  - partials less than 15% apart in frequency are heard as one;
+    //  - loudness grows with energy ** 0.23, and adds up across partials that
+    //    are heard separately.
+    function loudnessOf(partials) {
+      const heard = [];   // [lowest ratio, energy] for each group heard as one
+      for (const [ratio, amplitude, fade] of [...partials].sort((a, b) => a[0] - b[0])) {
+        const tau = fade / Math.log(amplitude / FADED);   // decay time constant
+        const energy = amplitude ** 2 * (tau / 2) * (1 - Math.exp((-2 * EAR_TIME) / tau));
+        const last = heard.at(-1);
+        if (last && ratio < last[0] * 1.15) last[1] += energy;
+        else heard.push([ratio, energy]);
+      }
+      const loudness = heard.reduce((sum, [, energy]) => sum + energy ** 0.23, 0);
+      return loudness ** (1 / 0.46);   // energy goes with amplitude squared
+    }
 
     function createSoundPlayer() {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       let ctx = null;
       let master = null;   // one volume knob for every sound
       let volume = 1;
+      let sharpness = 0;   // 0 to 1
 
       // Browsers only allow audio after the user has clicked something, so
       // the audio context is created by the first click that plays a sound.
@@ -705,20 +773,18 @@
         return ctx;
       }
 
-      function strikeNote(sound, frequency, when) {
-        const total = sound.partials.reduce((sum, [, loudness]) => sum + loudness, 0);
-        const scale = (PEAK * sound.level) / total;
-        for (const [ratio, loudness, fade] of sound.partials) {
+      function strikeNote(shape, frequency, when) {
+        for (const [ratio, amplitude, fade] of shape.partials) {
           const osc = ctx.createOscillator();
           const envelope = ctx.createGain();
           osc.frequency.value = frequency * ratio;
           envelope.gain.setValueAtTime(0, when);
-          envelope.gain.linearRampToValueAtTime(loudness * scale, when + sound.attack);
-          envelope.gain.exponentialRampToValueAtTime(0.0001, when + sound.attack + fade);
+          envelope.gain.linearRampToValueAtTime(amplitude, when + shape.attack);
+          envelope.gain.exponentialRampToValueAtTime(FADED, when + shape.attack + fade);
           osc.connect(envelope);
           envelope.connect(master);
           osc.start(when);
-          osc.stop(when + sound.attack + fade);
+          osc.stop(when + shape.attack + fade);
         }
       }
 
@@ -727,13 +793,17 @@
           volume = (percent / 100) ** 2;   // squared, so the slider feels even to the ear
           if (master) master.gain.setTargetAtTime(volume, ctx.currentTime, 0.02);
         },
+        setSharpness(percent) {
+          sharpness = percent / 100;
+        },
         play(soundId, times = 1) {
           if (!getContext()) return;
           const sound = SOUNDS[soundId] || SOUNDS.bell;
+          const shape = shapeSound(sound, sharpness);
           const start = ctx.currentTime + 0.03;
           for (let i = 0; i < times; i++) {
             for (const [offset, frequency] of sound.notes) {
-              strikeNote(sound, frequency, start + i * REPEAT_GAP + offset);
+              strikeNote(shape, frequency, start + i * REPEAT_GAP + offset);
             }
           }
         },
@@ -848,6 +918,7 @@
       form: $("settings-form"),
       microFields: $("micro-fields"),
       volumeOutput: $("volume-output"),
+      sharpnessOutput: $("sharpness-output"),
       defaultsButton: $("defaults-button"),
     };
 
@@ -902,6 +973,7 @@
     let settings = loadSettings();
     const sound = createSoundPlayer();
     sound.setVolume(settings.volume);
+    sound.setSharpness(settings.sharpness);
 
     const timers = {
       work: new Countdown("work", durationOf("work")),
@@ -1193,12 +1265,17 @@
         else field.value = String(value);   // for a group of radio buttons, this checks one
       }
       els.microFields.disabled = !settings.microEnabled;
+      showSliderValues();
+    }
+
+    function showSliderValues() {
       els.volumeOutput.textContent = `${settings.volume}%`;
+      els.sharpnessOutput.textContent = `${settings.sharpness}%`;
     }
 
     els.form.addEventListener("submit", (event) => event.preventDefault());
 
-    // Number boxes, the micro-break switch and the volume slider.
+    // Number boxes, the micro-break switch and the sliders.
     els.form.addEventListener("change", (event) => {
       const field = event.target;
       if (field.type === "radio") return;   // sound choices are handled on click, below
@@ -1207,7 +1284,7 @@
         settings[field.name] = field.checked;
       } else if (field.type === "range") {
         settings[field.name] = Number(field.value);
-        sound.play(settings.timerSound);    // a sample at the new volume
+        sound.play(settings.timerSound);    // a sample at the new volume or sharpness
       } else {
         const value = Number.parseFloat(field.value);
         if (Number.isFinite(value)) settings[field.name] = fitToField(field, value);
@@ -1221,12 +1298,14 @@
       applySettings(field.name);
     });
 
-    // Change the volume live while the slider is being dragged.
+    // The sliders take effect live, while they are being dragged.
     els.form.addEventListener("input", (event) => {
-      if (event.target.name !== "volume") return;
-      settings.volume = Number(event.target.value);
+      const field = event.target;
+      if (field.type !== "range") return;
+      settings[field.name] = Number(field.value);
       sound.setVolume(settings.volume);
-      els.volumeOutput.textContent = `${settings.volume}%`;
+      sound.setSharpness(settings.sharpness);
+      showSliderValues();
     });
 
     // Picking a sound (or the picked one again) plays a sample of it.
@@ -1251,6 +1330,7 @@
       saveSettings();
       fillForm();
       sound.setVolume(settings.volume);
+      sound.setSharpness(settings.sharpness);
 
       // A timer that hasn't started shows its new length at once; a running
       // or paused timer keeps its length until it is reset.
